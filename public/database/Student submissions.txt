@@ -1,0 +1,51 @@
+
+CREATE TABLE IF NOT EXISTS submissions (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    assignment_id UUID NOT NULL
+        REFERENCES assignments(id) ON DELETE RESTRICT,
+
+    student_id UUID
+        REFERENCES students(id) ON DELETE RESTRICT,
+
+    group_id UUID
+        REFERENCES student_groups(id) ON DELETE RESTRICT,
+
+    submission_text TEXT,
+    file_url TEXT,
+
+    submitted_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'submitted'
+        CHECK (
+            status IN (
+                'draft',
+                'submitted',
+                'late',
+                'returned',
+                'resubmitted'
+            )
+        ),
+
+    teacher_feedback TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CHECK (
+        (student_id IS NOT NULL AND group_id IS NULL)
+        OR
+        (student_id IS NULL AND group_id IS NOT NULL)
+    )
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_individual_submission
+ON submissions(assignment_id, student_id)
+WHERE student_id IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS uq_group_submission
+ON submissions(assignment_id, group_id)
+WHERE group_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_submissions_assignment
+ON submissions(assignment_id);

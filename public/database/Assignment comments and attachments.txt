@@ -1,0 +1,23 @@
+CREATE TABLE IF NOT EXISTS assignment_comments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    assignment_id UUID NOT NULL
+        REFERENCES assignments(id) ON DELETE RESTRICT,
+
+    submission_id UUID
+        REFERENCES submissions(id) ON DELETE RESTRICT,
+
+    author_user_id UUID NOT NULL
+        REFERENCES users(id) ON DELETE RESTRICT,
+
+    comment_text TEXT NOT NULL,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_comments_assignment
+ON assignment_comments(assignment_id);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_comments_submission
+ON assignment_comments(submission_id);

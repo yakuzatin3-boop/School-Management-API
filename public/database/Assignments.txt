@@ -1,0 +1,53 @@
+
+CREATE TABLE IF NOT EXISTS assignments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    class_id UUID NOT NULL
+        REFERENCES classes(id) ON DELETE RESTRICT,
+
+    lesson_id UUID
+        REFERENCES lessons(id) ON DELETE RESTRICT,
+
+    teacher_id UUID NOT NULL
+        REFERENCES teachers(id) ON DELETE RESTRICT,
+
+    title VARCHAR(200) NOT NULL,
+    description TEXT NOT NULL,
+
+    assignment_type VARCHAR(30) NOT NULL
+        CHECK (
+            assignment_type IN (
+                'homework',
+                'exercise',
+                'group_activity',
+                'exam'
+            )
+        ),
+
+    submission_type VARCHAR(20) NOT NULL DEFAULT 'individual'
+        CHECK (submission_type IN ('individual', 'group')),
+
+    max_score NUMERIC(7,2) NOT NULL DEFAULT 100
+        CHECK (max_score > 0),
+
+    due_at TIMESTAMPTZ,
+    available_from TIMESTAMPTZ,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'published', 'closed')),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CHECK (
+        available_from IS NULL
+        OR due_at IS NULL
+        OR due_at >= available_from
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_class_id
+ON assignments(class_id);
+
+CREATE INDEX IF NOT EXISTS idx_assignments_teacher_id
+ON assignments(teacher_id);

@@ -1,0 +1,36 @@
+
+CREATE TABLE IF NOT EXISTS users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    email VARCHAR(150) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+
+    role VARCHAR(20) NOT NULL DEFAULT 'student'
+        CHECK (role IN ('admin', 'teacher', 'student')),
+
+    is_active BOOLEAN NOT NULL DEFAULT TRUE,
+    email_verified BOOLEAN NOT NULL DEFAULT FALSE,
+
+    last_login_at TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_users_role_active
+ON users (role, is_active);
+
+
+The user must be have the relationship with Teacher and student.
++ Role Teacher :
+  Teacher Can create the class with sellect course building room, floor, lession, track the attandent, give student score,
+ check the home work that student submite request the Certifycade to admin for student that pass the exam, 
+ create the team group for student in system to drop,the exercise for activity score, select time for start class.
+ The teacher must have the skill for teach like WEB Development, Network, Cyber sicurity,Basice program(C++, C, Phython) Mobile App.
+
++Role Student:
+ Student can check their homework, check the score, check team work, check te rule of school, submite their homework, add their profile.
+
++ Role Admin :
+Admin can control all of the role in system, can remove user, can update rule, can change the student status in class that is student comlate 
+must be A but admin can change status to P.

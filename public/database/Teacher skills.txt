@@ -1,0 +1,22 @@
+CREATE TABLE IF NOT EXISTS teacher_skills (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    teacher_id UUID NOT NULL
+        REFERENCES teachers(id) ON DELETE RESTRICT,
+
+    course_id UUID NOT NULL
+        REFERENCES courses(id) ON DELETE RESTRICT,
+
+    skill_level VARCHAR(20) NOT NULL DEFAULT 'intermediate'
+        CHECK (skill_level IN ('beginner', 'intermediate', 'advanced', 'expert')),
+
+    years_experience NUMERIC(4,1)
+        CHECK (years_experience IS NULL OR years_experience >= 0),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (teacher_id, course_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_teacher_skills_course
+ON teacher_skills(course_id);

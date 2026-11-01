@@ -1,0 +1,11 @@
+
+CREATE TABLE IF NOT EXISTS buildings (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    building_code VARCHAR(30) NOT NULL UNIQUE,
+    building_name VARCHAR(100) NOT NULL,
+    address TEXT,
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'inactive')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);

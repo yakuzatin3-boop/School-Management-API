@@ -1,0 +1,38 @@
+
+CREATE TABLE IF NOT EXISTS class_schedules (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    class_id UUID NOT NULL
+        REFERENCES classes(id) ON DELETE RESTRICT,
+
+    room_id UUID NOT NULL
+        REFERENCES rooms(id) ON DELETE RESTRICT,
+
+    day_of_week SMALLINT NOT NULL
+        CHECK (day_of_week BETWEEN 1 AND 7),
+
+    start_time TIME NOT NULL,
+    end_time TIME NOT NULL,
+
+    effective_from DATE NOT NULL,
+    effective_until DATE,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+        CHECK (status IN ('active', 'inactive')),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CHECK (end_time > start_time),
+
+    CHECK (
+        effective_until IS NULL
+        OR effective_until >= effective_from
+    )
+);
+
+CREATE INDEX IF NOT EXISTS idx_class_schedules_class_id
+ON class_schedules(class_id);
+
+CREATE INDEX IF NOT EXISTS idx_class_schedules_room_id
+ON class_schedules(room_id);

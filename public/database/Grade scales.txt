@@ -1,0 +1,20 @@
+CREATE TABLE IF NOT EXISTS grade_scales (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    scale_name VARCHAR(100) NOT NULL,
+    grade_label VARCHAR(10) NOT NULL,
+
+    min_score NUMERIC(5,2) NOT NULL CHECK (min_score >= 0),
+    max_score NUMERIC(5,2) NOT NULL CHECK (max_score <= 100),
+
+    description TEXT,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (scale_name, grade_label),
+
+    CHECK (max_score >= min_score)
+);
+
+CREATE INDEX IF NOT EXISTS idx_grade_scales_name
+ON grade_scales(scale_name);

@@ -1,0 +1,24 @@
+CREATE TABLE IF NOT EXISTS enrollment_status_history (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    enrollment_id UUID NOT NULL
+        REFERENCES enrollments(id) ON DELETE RESTRICT,
+
+    changed_by UUID REFERENCES users(id) ON DELETE SET NULL,
+
+    old_status VARCHAR(20),
+    new_status VARCHAR(20),
+
+    old_completion_status VARCHAR(20),
+    new_completion_status VARCHAR(20),
+
+    reason TEXT,
+
+    changed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrollment_history_enrollment
+ON enrollment_status_history(enrollment_id);
+
+CREATE INDEX IF NOT EXISTS idx_enrollment_history_changed_at
+ON enrollment_status_history(changed_at);

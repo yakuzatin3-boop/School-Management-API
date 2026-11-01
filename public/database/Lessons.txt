@@ -1,0 +1,30 @@
+
+CREATE TABLE IF NOT EXISTS lessons (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    class_id UUID NOT NULL
+        REFERENCES classes(id) ON DELETE RESTRICT,
+
+    teacher_id UUID NOT NULL
+        REFERENCES teachers(id) ON DELETE RESTRICT,
+
+    title VARCHAR(200) NOT NULL,
+    description TEXT,
+    lesson_number INTEGER NOT NULL CHECK (lesson_number > 0),
+
+    content TEXT,
+    materials_url TEXT,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'draft'
+        CHECK (status IN ('draft', 'published', 'archived')),
+
+    published_at TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (class_id, lesson_number)
+);
+
+CREATE INDEX IF NOT EXISTS idx_lessons_class_id
+ON lessons(class_id);

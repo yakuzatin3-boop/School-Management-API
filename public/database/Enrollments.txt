@@ -1,0 +1,40 @@
+
+CREATE TABLE IF NOT EXISTS enrollments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    student_id UUID NOT NULL
+        REFERENCES students(id) ON DELETE RESTRICT,
+
+    class_id UUID NOT NULL
+        REFERENCES classes(id) ON DELETE RESTRICT,
+
+    enrolled_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    status VARCHAR(20) NOT NULL DEFAULT 'active'
+        CHECK (
+            status IN ('active', 'withdrawn', 'suspended')
+        ),
+
+    completion_status VARCHAR(20) NOT NULL DEFAULT 'in_progress'
+        CHECK (
+            completion_status IN (
+                'not_started',
+                'in_progress',
+                'completed'
+            )
+        ),
+
+    completed_at TIMESTAMPTZ,
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    CONSTRAINT uq_enrollment_student_class
+        UNIQUE (student_id, class_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_enrollments_class_id
+ON enrollments(class_id);
+
+CREATE INDEX IF NOT EXISTS idx_enrollments_student_id
+ON enrollments(student_id);

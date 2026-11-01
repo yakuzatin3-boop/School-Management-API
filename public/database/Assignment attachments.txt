@@ -1,0 +1,19 @@
+CREATE TABLE IF NOT EXISTS assignment_attachments (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    assignment_id UUID NOT NULL
+        REFERENCES assignments(id) ON DELETE RESTRICT,
+
+    uploaded_by UUID NOT NULL
+        REFERENCES users(id) ON DELETE RESTRICT,
+
+    file_name VARCHAR(255) NOT NULL,
+    file_url TEXT NOT NULL,
+    file_type VARCHAR(100),
+    file_size_bytes BIGINT CHECK (file_size_bytes IS NULL OR file_size_bytes >= 0),
+
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_assignment_attachments_assignment
+ON assignment_attachments(assignment_id);

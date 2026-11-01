@@ -1,0 +1,12 @@
+CREATE TABLE IF NOT EXISTS floors (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    building_id UUID NOT NULL
+        REFERENCES buildings(id) ON DELETE RESTRICT,
+    floor_number INTEGER NOT NULL,
+    floor_name VARCHAR(100),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+
+    UNIQUE (building_id, floor_number),
+    UNIQUE (id, building_id)
+);
