@@ -209,6 +209,21 @@ npm run test:cov     # coverage
 npm run lint         # oxlint
 ```
 
+## Docker
+
+The API has a multi-stage `Dockerfile` and can be run together with PostgreSQL
+and the web app through the Compose stack in the parent directory:
+
+```bash
+# from School-Project/
+cp .env.example .env       # then change the passwords/secrets
+docker compose up -d --build
+```
+
+The API is available through the web proxy at
+`http://localhost:8080/api/v1`. See `../DOCKER.md` for configuration,
+production notes and backup commands.
+
 ## Project structure
 
 ```

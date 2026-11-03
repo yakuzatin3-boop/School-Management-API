@@ -17,8 +17,10 @@ export function databaseconfig(config: ConfigService): TypeOrmModuleOptions {
     // import raw TypeScript entity files at runtime.
     autoLoadEntities: true,
 
-    // Prevents TypeORM from automatically changing your database tables
-    // to match your entities.
-    synchronize: false,
+    // Schema synchronisation is opt-in. Docker Compose enables it on a fresh
+    // database so the tables are created automatically. Keep it disabled in
+    // production once the schema is managed through migrations.
+    synchronize:
+      config.get<string>('DB_SYNCHRONIZE', 'false').toLowerCase() === 'true',
   };
 }
