@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/banner.svg" alt="School Management System" width="100%">
+<img src="public/assets/Banner.svg" alt="School Management System" width="100%">
 
 <br>
 
