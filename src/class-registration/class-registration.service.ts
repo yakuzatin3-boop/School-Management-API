@@ -1,15 +1,15 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, createHmac, randomUUID } from 'node:crypto';
 import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
-  InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
+import QRCode from 'qrcode';
 
 import { ClassJoinCode } from './entities/class-join-code.entity/class-join-code.entity.js';
 import { SchoolClass } from '../classes/entities/school-class.entity/school-class.entity.js';
@@ -56,29 +56,22 @@ export class ClassRegistrationService {
     dto: CreateClassJoinCodeDto,
   ) {
     const schoolClass = await this.getClassForManager(classId, actor);
-    const expiresInHours =
-      dto.expiresInHours ?? DEFAULT_EXPIRES_IN_HOURS;
+    const expiresInHours = dto.expiresInHours ?? DEFAULT_EXPIRES_IN_HOURS;
 
-    const token = randomBytes(32).toString('base64url');
+    const joinCodeId = randomUUID();
+    const token = this.buildJoinCodeToken(joinCodeId);
     const joinCode = this.joinCodeRepository.create({
+      id: joinCodeId,
       schoolClass,
       tokenHash: this.hashToken(token),
-      expiresAt: new Date(
-        Date.now() + expiresInHours * 60 * 60 * 1000,
-      ),
+      expiresAt: new Date(Date.now() + expiresInHours * 60 * 60 * 1000),
       isActive: true,
       createdByUser: { id: actor.userId } as User,
     });
 
     const savedJoinCode = await this.joinCodeRepository.save(joinCode);
 
-    return {
-      id: savedJoinCode.id,
-      classId: schoolClass.id,
-      registrationUrl: this.buildRegistrationUrl(token),
-      expiresAt: savedJoinCode.expiresAt,
-      isActive: savedJoinCode.isActive,
-    };
+    return this.toPublicJoinCode(savedJoinCode, schoolClass.id);
   }
 
   async findJoinCodes(classId: string, actor: AuthenticatedActor) {
@@ -94,8 +87,10 @@ export class ClassRegistrationService {
       },
     });
 
-    return joinCodes.map((joinCode) =>
-      this.toPublicJoinCode(joinCode, schoolClass.id),
+    return Promise.all(
+      joinCodes.map((joinCode) =>
+        this.toPublicJoinCode(joinCode, schoolClass.id),
+      ),
     );
   }
 
@@ -166,21 +161,16 @@ export class ClassRegistrationService {
     }
 
     if (student.status !== StudentStatus.ACTIVE) {
-      throw new ForbiddenException(
-        'Only active students can join a class',
-      );
+      throw new ForbiddenException('Only active students can join a class');
     }
 
     if (schoolClass.status !== 'active') {
-      throw new BadRequestException(
-        'This class is not open for registration',
-      );
+      throw new BadRequestException('This class is not open for registration');
     }
 
     try {
       return await this.dataSource.transaction(async (manager) => {
-        const joinCodeRepository =
-          manager.getRepository(ClassJoinCode);
+        const joinCodeRepository = manager.getRepository(ClassJoinCode);
         const lockedJoinCode = await joinCodeRepository.findOne({
           where: {
             id: joinCode.id,
@@ -195,13 +185,10 @@ export class ClassRegistrationService {
           !lockedJoinCode.isActive ||
           lockedJoinCode.expiresAt.getTime() <= Date.now()
         ) {
-          throw new NotFoundException(
-            'Invitation not found or has expired',
-          );
+          throw new NotFoundException('Invitation not found or has expired');
         }
 
-        const enrollmentRepository =
-          manager.getRepository(Enrollment);
+        const enrollmentRepository = manager.getRepository(Enrollment);
         const existingEnrollment = await enrollmentRepository.findOne({
           where: {
             student: {
@@ -220,9 +207,7 @@ export class ClassRegistrationService {
           existingEnrollment &&
           existingEnrollment.status === EnrollmentStatus.ACTIVE
         ) {
-          throw new ConflictException(
-            'You are already enrolled in this class',
-          );
+          throw new ConflictException('You are already enrolled in this class');
         }
 
         let enrollment: Enrollment;
@@ -231,8 +216,7 @@ export class ClassRegistrationService {
         if (existingEnrollment) {
           existingEnrollment.status = EnrollmentStatus.ACTIVE;
           existingEnrollment.completedAt = null;
-          enrollment =
-            await enrollmentRepository.save(existingEnrollment);
+          enrollment = await enrollmentRepository.save(existingEnrollment);
         } else {
           enrollment = await enrollmentRepository.save(
             enrollmentRepository.create({
@@ -257,19 +241,14 @@ export class ClassRegistrationService {
       });
     } catch (error) {
       if (this.isUniqueViolation(error)) {
-        throw new ConflictException(
-          'You are already enrolled in this class',
-        );
+        throw new ConflictException('You are already enrolled in this class');
       }
 
       throw error;
     }
   }
 
-  private async getClassForManager(
-    classId: string,
-    actor: AuthenticatedActor,
-  ) {
+  private async getClassForManager(classId: string, actor: AuthenticatedActor) {
     const schoolClass = await this.schoolClassRepository.findOne({
       where: {
         id: classId,
@@ -303,10 +282,7 @@ export class ClassRegistrationService {
       throw new ForbiddenException('Teacher profile not found');
     }
 
-    if (
-      !schoolClass.teacher ||
-      schoolClass.teacher.id !== teacher.id
-    ) {
+    if (!schoolClass.teacher || schoolClass.teacher.id !== teacher.id) {
       throw new ForbiddenException(
         'You can only manage invitations for your own classes',
       );
@@ -332,51 +308,79 @@ export class ClassRegistrationService {
       !joinCode.isActive ||
       joinCode.expiresAt.getTime() <= Date.now()
     ) {
-      throw new NotFoundException(
-        'Invitation not found or has expired',
-      );
+      throw new NotFoundException('Invitation not found or has expired');
     }
 
     return joinCode;
   }
 
   private buildRegistrationUrl(token: string) {
-    const frontendUrl = this.configService
-      .get<string>('FRONTEND_URL')
-      ?.trim();
+    const frontendUrl =
+      this.configService.get<string>('FRONTEND_URL')?.trim() ||
+      'http://localhost:4200';
 
-    if (!frontendUrl) {
-      throw new InternalServerErrorException(
-        'FRONTEND_URL is not configured',
+    return `${frontendUrl.replace(/\/+$/, '')}/class-registration/${encodeURIComponent(token)}`;
+  }
+
+  /**
+   * Join-code tokens are deterministic for a given code id, so the original
+   * QR/URL can be rebuilt for display without persisting the raw token.
+   * Only its hash is stored in the database.
+   */
+  private buildJoinCodeToken(joinCodeId: string) {
+    const secret =
+      this.configService.get<string>('CLASS_JOIN_CODE_SECRET')?.trim() ||
+      this.configService.get<string>('JWT_SECRET');
+
+    if (!secret) {
+      throw new Error(
+        'CLASS_JOIN_CODE_SECRET or JWT_SECRET must be configured',
       );
     }
 
-    return `${frontendUrl.replace(/\/+$/, '')}/class-registration/${encodeURIComponent(token)}`;
+    const signature = createHmac('sha256', secret)
+      .update(joinCodeId)
+      .digest('base64url');
+
+    return `${joinCodeId}.${signature}`;
   }
 
   private hashToken(token: string) {
     return createHash('sha256').update(token).digest('hex');
   }
 
-  private toPublicJoinCode(
-    joinCode: ClassJoinCode,
-    classId: string,
-  ) {
+  private async toPublicJoinCode(joinCode: ClassJoinCode, classId: string) {
+    const isExpired = joinCode.expiresAt.getTime() <= Date.now();
+    const canRegister = joinCode.isActive && !isExpired;
+    const registrationUrl = canRegister
+      ? this.buildRegistrationUrl(this.buildJoinCodeToken(joinCode.id))
+      : null;
+
     return {
       id: joinCode.id,
       classId,
+      registrationUrl,
+      qrCodeDataUrl:
+        registrationUrl === null
+          ? null
+          : await this.createQrCodeDataUrl(registrationUrl),
       expiresAt: joinCode.expiresAt,
       isActive: joinCode.isActive,
-      isExpired: joinCode.expiresAt.getTime() <= Date.now(),
+      isExpired,
       createdAt: joinCode.createdAt,
       updatedAt: joinCode.updatedAt,
     };
   }
 
-  private toPublicEnrollment(
-    enrollment: Enrollment,
-    schoolClass: SchoolClass,
-  ) {
+  private createQrCodeDataUrl(content: string) {
+    return QRCode.toDataURL(content, {
+      errorCorrectionLevel: 'M',
+      margin: 1,
+      width: 512,
+    });
+  }
+
+  private toPublicEnrollment(enrollment: Enrollment, schoolClass: SchoolClass) {
     return {
       id: enrollment.id,
       status: enrollment.status,
@@ -410,8 +414,7 @@ export class ClassRegistrationService {
     };
 
     return (
-      codedError.code === '23505' ||
-      codedError.driverError?.code === '23505'
+      codedError.code === '23505' || codedError.driverError?.code === '23505'
     );
   }
 }

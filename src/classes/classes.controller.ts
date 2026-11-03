@@ -16,6 +16,8 @@ import { CreateClassDto } from './dto/create-class.dto.js';
 import { UpdateClassDto } from './dto/update-class.dto.js';
 import { CreateClassScheduleDto } from './dto/create-class-schedule.dto.js';
 import { UpdateClassScheduleDto } from './dto/update-class-schedule.dto.js';
+import { AddClassStudentDto } from './dto/add-class-student.dto.js';
+import { UpdateClassEnrollmentDto } from './dto/update-class-enrollment.dto.js';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard.js';
 import { RolesGuard } from '../common/guards/roles.guard.js';
 import { Roles } from '../common/decorators/roles.decorator.js';
@@ -41,9 +43,12 @@ export class ClassesController {
 	}
 
 	@Post()
-	@Roles(UserRole.ADMIN)
-	create(@Body() dto: CreateClassDto) {
-		return this.classesService.create(dto);
+	@Roles(UserRole.ADMIN, UserRole.TEACHER)
+	create(
+		@Req() request: AuthenticatedRequest,
+		@Body() dto: CreateClassDto,
+	) {
+		return this.classesService.create(dto, this.getActor(request));
 	}
 
 	@Get(':classId')
@@ -116,6 +121,72 @@ export class ClassesController {
 		@Param('scheduleId', ParseUUIDPipe) scheduleId: string,
 	) {
 		return this.classesService.removeSchedule(classId, scheduleId);
+	}
+
+	@Get(':classId/summary')
+	findSummary(
+		@Req() request: AuthenticatedRequest,
+		@Param('classId', ParseUUIDPipe) classId: string,
+	) {
+		return this.classesService.getSummary(
+			classId,
+			this.getActor(request),
+		);
+	}
+
+	@Get(':classId/students')
+	findStudents(
+		@Req() request: AuthenticatedRequest,
+		@Param('classId', ParseUUIDPipe) classId: string,
+	) {
+		return this.classesService.findStudents(
+			classId,
+			this.getActor(request),
+		);
+	}
+
+	@Post(':classId/students')
+	@Roles(UserRole.ADMIN, UserRole.TEACHER)
+	addStudent(
+		@Req() request: AuthenticatedRequest,
+		@Param('classId', ParseUUIDPipe) classId: string,
+		@Body() dto: AddClassStudentDto,
+	) {
+		return this.classesService.addStudent(
+			classId,
+			dto,
+			this.getActor(request),
+		);
+	}
+
+	@Patch(':classId/students/:enrollmentId')
+	@Roles(UserRole.ADMIN, UserRole.TEACHER)
+	updateStudent(
+		@Req() request: AuthenticatedRequest,
+		@Param('classId', ParseUUIDPipe) classId: string,
+		@Param('enrollmentId', ParseUUIDPipe) enrollmentId: string,
+		@Body() dto: UpdateClassEnrollmentDto,
+	) {
+		return this.classesService.updateStudent(
+			classId,
+			enrollmentId,
+			dto,
+			this.getActor(request),
+		);
+	}
+
+	@Delete(':classId/students/:enrollmentId')
+	@Roles(UserRole.ADMIN, UserRole.TEACHER)
+	removeStudent(
+		@Req() request: AuthenticatedRequest,
+		@Param('classId', ParseUUIDPipe) classId: string,
+		@Param('enrollmentId', ParseUUIDPipe) enrollmentId: string,
+	) {
+		return this.classesService.removeStudent(
+			classId,
+			enrollmentId,
+			this.getActor(request),
+		);
 	}
 
 	private getActor(request: AuthenticatedRequest) {

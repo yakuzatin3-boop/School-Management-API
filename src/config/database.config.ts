@@ -1,9 +1,5 @@
 import { ConfigService } from '@nestjs/config';
 import { TypeOrmModuleOptions } from '@nestjs/typeorm';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
-
-const currentDir = dirname(fileURLToPath(import.meta.url));
 
 export function databaseconfig(config: ConfigService): TypeOrmModuleOptions {
   return {
@@ -16,9 +12,13 @@ export function databaseconfig(config: ConfigService): TypeOrmModuleOptions {
     password: config.get<string>('DB_PASSWORD'),
     database: config.get<string>('DB_DATABASE'),
 
-    // Load every entity so relations (e.g. User -> Teacher) have metadata.
-    entities: [join(currentDir, '..', '**', '*.entity.{ts,js}')],
-    // prevents TypeORM from automatically changing your database tables to match your entities.
+    // Register every entity added through TypeOrmModule.forFeature().
+    // This works in both the compiled app and Vitest without trying to
+    // import raw TypeScript entity files at runtime.
+    autoLoadEntities: true,
+
+    // Prevents TypeORM from automatically changing your database tables
+    // to match your entities.
     synchronize: false,
   };
 }

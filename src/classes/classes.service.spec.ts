@@ -7,6 +7,15 @@ import { ClassSchedule } from './entities/class-schedule.entity/class-schedule.e
 import { Room } from './entities/room.entity/room.entity.js';
 import { Course } from '../courses/entities/course.entity/course.entity.js';
 import { Teacher } from '../teachers/entities/teacher.entity/teacher.entity.js';
+import {
+  Enrollment,
+  EnrollmentStatus,
+} from '../enrollments/entities/enrollment.entity/enrollment.entity.js';
+import { EnrollmentStatusHistory } from '../enrollments/entities/enrollment-status-history.entity/enrollment-status-history.entity.js';
+import {
+  Student,
+  StudentStatus,
+} from '../students/entities/student.entity/student.entity.js';
 import { UserRole } from '../users/entities/user.entity/user.entity.js';
 
 describe('ClassesService', () => {
@@ -27,7 +36,7 @@ describe('ClassesService', () => {
     course,
     teacher,
     schedules: [],
-  } as SchoolClass;
+  } as unknown as SchoolClass;
 
   const classRepository = {
     find: vi.fn(),
@@ -47,6 +56,37 @@ describe('ClassesService', () => {
   const roomRepository = { findOne: vi.fn() };
   const courseRepository = { findOne: vi.fn() };
   const teacherRepository = { findOne: vi.fn() };
+  const enrollmentRepository = {
+    find: vi.fn(),
+    findOne: vi.fn(),
+    create: vi.fn((value) => value),
+    save: vi.fn((value) => Promise.resolve(value)),
+  };
+  const enrollmentStatusHistoryRepository = {
+    create: vi.fn((value) => value),
+    save: vi.fn((value) => Promise.resolve(value)),
+  };
+  const studentRepository = { findOne: vi.fn() };
+  const classRegistrationService = {
+    createJoinCode: vi.fn().mockResolvedValue({
+      id: 'join-code-1',
+      classId: 'class-1',
+      registrationUrl: 'http://localhost:4200/class-registration/token',
+      qrCodeDataUrl: 'data:image/png;base64,qr',
+      expiresAt: new Date('2026-01-02T00:00:00.000Z'),
+      isActive: true,
+      isExpired: false,
+    }),
+  };
+
+  const student = {
+    id: 'student-1',
+    studentNumber: 'S-001',
+    firstName: 'John',
+    lastName: 'Doe',
+    email: 'john@example.com',
+    status: StudentStatus.ACTIVE,
+  } as Student;
 
   let service: ClassesService;
 
@@ -58,11 +98,16 @@ describe('ClassesService', () => {
       roomRepository as unknown as Repository<Room>,
       courseRepository as unknown as Repository<Course>,
       teacherRepository as unknown as Repository<Teacher>,
+      enrollmentRepository as unknown as Repository<Enrollment>,
+      enrollmentStatusHistoryRepository as unknown as Repository<EnrollmentStatusHistory>,
+      studentRepository as unknown as Repository<Student>,
+      classRegistrationService as any,
     );
     classRepository.findOne.mockResolvedValue(schoolClass);
     classRepository.find.mockResolvedValue([schoolClass]);
     courseRepository.findOne.mockResolvedValue(course);
     teacherRepository.findOne.mockResolvedValue(teacher);
+    studentRepository.findOne.mockResolvedValue(student);
   });
 
   it('creates a class with existing course and teacher relations', async () => {
@@ -70,12 +115,15 @@ describe('ClassesService', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(schoolClass);
 
-    const result = await service.create({
-      classCode: ' MATH-1 ',
-      name: ' Algebra ',
-      courseId: 'course-1',
-      teacherId: 'teacher-1',
-    });
+    const result = await service.create(
+      {
+        classCode: ' MATH-1 ',
+        name: ' Algebra ',
+        courseId: 'course-1',
+        teacherId: 'teacher-1',
+      },
+      { userId: 'admin-1', role: UserRole.ADMIN },
+    );
 
     expect(classRepository.create).toHaveBeenCalledWith({
       classCode: 'MATH-1',
@@ -84,12 +132,63 @@ describe('ClassesService', () => {
       course,
       teacher,
     });
+    expect(classRegistrationService.createJoinCode).toHaveBeenCalledWith(
+      'class-1',
+      { userId: 'admin-1', role: UserRole.ADMIN },
+      {},
+    );
     expect(result).toMatchObject({
       id: 'class-1',
       classCode: 'MATH-1',
       course: { id: 'course-1', name: 'Mathematics' },
       teacher: { id: 'teacher-1', teacherNumber: 'T-001' },
+      registration: {
+        id: 'join-code-1',
+        qrCodeDataUrl: 'data:image/png;base64,qr',
+      },
     });
+  });
+
+  it('assigns a teacher creating a class to their own profile', async () => {
+    classRepository.findOne
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(schoolClass);
+
+    await service.create(
+      {
+        classCode: 'MATH-2',
+        name: 'Geometry',
+        courseId: 'course-1',
+      },
+      { userId: 'user-1', role: UserRole.TEACHER },
+    );
+
+    expect(classRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        teacher,
+      }),
+    );
+  });
+
+  it('prevents a teacher from creating a class for another teacher', async () => {
+    classRepository.findOne.mockResolvedValueOnce(null);
+    teacherRepository.findOne
+      .mockResolvedValueOnce(
+        Object.assign({}, teacher, { id: 'teacher-2' }) as Teacher,
+      )
+      .mockResolvedValueOnce(teacher);
+
+    await expect(
+      service.create(
+        {
+          classCode: 'MATH-3',
+          name: 'Calculus',
+          courseId: 'course-1',
+          teacherId: 'teacher-2',
+        },
+        { userId: 'user-1', role: UserRole.TEACHER },
+      ),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it('limits teacher class listings to the linked teacher profile', async () => {
@@ -146,5 +245,91 @@ describe('ClassesService', () => {
     ).rejects.toBeInstanceOf(ConflictException);
 
     expect(queryBuilder.getOne).toHaveBeenCalledOnce();
+  });
+
+  it('adds a student to the class roster and records history', async () => {
+    enrollmentRepository.findOne.mockResolvedValue(null);
+
+    const result = await service.addStudent(
+      'class-1',
+      { studentId: 'student-1' },
+      { userId: 'admin-1', role: UserRole.ADMIN },
+    );
+
+    expect(enrollmentRepository.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        student,
+        schoolClass,
+        status: EnrollmentStatus.ACTIVE,
+      }),
+    );
+    expect(enrollmentStatusHistoryRepository.save).toHaveBeenCalledOnce();
+    expect(result).toMatchObject({
+      status: EnrollmentStatus.ACTIVE,
+      student: { id: 'student-1' },
+    });
+  });
+
+  it('rejects a duplicate active enrollment', async () => {
+    enrollmentRepository.findOne.mockResolvedValue({
+      id: 'enrollment-1',
+      status: EnrollmentStatus.ACTIVE,
+    });
+
+    await expect(
+      service.addStudent(
+        'class-1',
+        { studentId: 'student-1' },
+        { userId: 'admin-1', role: UserRole.ADMIN },
+      ),
+    ).rejects.toBeInstanceOf(ConflictException);
+  });
+
+  it('returns class summary stats', async () => {
+    classRepository.findOne.mockResolvedValue(
+      Object.assign({}, schoolClass, {
+        enrollments: [
+          { id: 'enrollment-1', status: EnrollmentStatus.ACTIVE },
+          { id: 'enrollment-2', status: EnrollmentStatus.WITHDRAWN },
+        ],
+      }) as SchoolClass,
+    );
+
+    const result = await service.getSummary('class-1', {
+      userId: 'admin-1',
+      role: UserRole.ADMIN,
+    });
+
+    expect(result.stats).toMatchObject({
+      totalEnrollments: 2,
+      activeEnrollments: 1,
+      withdrawnEnrollments: 1,
+      scheduleCount: 0,
+      hasTeacher: true,
+    });
+  });
+
+  it('lets a teacher view the roster of their own class', async () => {
+    enrollmentRepository.find.mockResolvedValue([
+      {
+        id: 'enrollment-1',
+        status: EnrollmentStatus.ACTIVE,
+        student,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      },
+    ]);
+
+    const result = await service.findStudents('class-1', {
+      userId: 'user-1',
+      role: UserRole.TEACHER,
+    });
+
+    expect(result).toHaveLength(1);
+    expect(enrollmentRepository.find).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { schoolClass: { id: 'class-1' } },
+      }),
+    );
   });
 });

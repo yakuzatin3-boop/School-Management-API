@@ -80,10 +80,14 @@ export class CertificateRequest {
   @JoinColumn({ name: 'student_id' })
   student: Relation<Student>;
 
-  @ManyToOne(() => SchoolClass, (schoolClass) => schoolClass.certificateRequests, {
-    nullable: false,
-    onDelete: 'CASCADE',
-  })
+  @ManyToOne(
+    () => SchoolClass,
+    (schoolClass) => schoolClass.certificateRequests,
+    {
+      nullable: false,
+      onDelete: 'CASCADE',
+    },
+  )
   @JoinColumn({ name: 'class_id' })
   schoolClass: Relation<SchoolClass>;
 

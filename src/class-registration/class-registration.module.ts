@@ -23,6 +23,7 @@ import { CommonModule } from '../common/common.module.js';
     ]),
   ],
   providers: [ClassRegistrationService],
+  exports: [ClassRegistrationService],
   controllers: [
     ClassJoinCodesController,
     ClassRegistrationController,

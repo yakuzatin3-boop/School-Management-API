@@ -15,8 +15,8 @@ describe('AppController', () => {
   });
 
   describe('root', () => {
-    it('should return "Bong Slanh Soy!"', () => {
-      expect(appController.getHello()).toBe('Bong Slanh Soy!');
+    it('should return the greeting', () => {
+      expect(appController.getHello()).toBe('Bong Slanh Soy🫶🫶🫶');
     });
   });
 });
