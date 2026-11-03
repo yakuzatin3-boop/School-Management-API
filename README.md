@@ -1,126 +1,252 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# School Management API
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+A REST API for managing a school: users, teachers, students, classes, courses,
+enrollments, attendance, lessons, assignments, submissions, exams, grading,
+groups, certificates, announcements, notifications, school rules and audit
+logs.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+Built with [NestJS](https://nestjs.com), TypeORM and PostgreSQL. All routes are
+versioned under `/api/v1`.
 
-## Description
+## Requirements
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+- Node.js 22+
+- PostgreSQL 14+
 
-## Project setup
+## Setup
 
 ```bash
-$ npm install
+npm install
+cp .env.example .env   # create this file if it does not exist
 ```
 
-## Compile and run the project
+Configure `.env`:
+
+```env
+DB_HOST=localhost
+DB_PORT=5432
+DB_USERNAME=postgres
+DB_PASSWORD=your_password
+DB_DATABASE=school_management
+
+JWT_SECRET=replace_with_a_long_random_secret
+JWT_ACCESS_EXPIRES_IN=15m
+JWT_REFRESH_EXPIRES_IN_DAYS=7
+
+PORT=3000
+FRONTEND_URL=http://localhost:4200
+CLASS_JOIN_CODE_SECRET=optional_secret_for_qr_tokens
+```
+
+Create the database, then make sure the schema matches the entities. The app
+does not run with `synchronize: true`, so apply migrations or create the schema
+with the provided helper:
 
 ```bash
-# development
-$ npm run start
-
-# watch mode
-$ npm run start:dev
-
-# production mode
-$ npm run start:prod
+npx ts-node --esm src/scripts/sync-schema.ts
 ```
 
-## Run tests
+## Run
 
 ```bash
-# unit tests
-$ npm run test
-
-# e2e tests
-$ npm run test:e2e
-
-# test coverage
-$ npm run test:cov
+npm run start:dev    # watch mode
+npm run start        # normal mode
+npm run build        # compile to dist/
+npm run start:prod   # run compiled build
 ```
 
-## Deployment
+The API is then available at `http://localhost:3000/api/v1`.
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+## Authentication and roles
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+Register or sign in through `/api/v1/auth`:
+
+| Method | Path              | Description                    |
+| ------ | ----------------- | ------------------------------ |
+| POST   | `/auth/register`  | Create an account              |
+| POST   | `/auth/login`     | Get access and refresh tokens  |
+| POST   | `/auth/refresh`   | Rotate tokens                  |
+| POST   | `/auth/logout`    | Revoke the current refresh token |
+| GET    | `/auth/me`        | Current user profile           |
+
+Send the access token on protected routes:
+
+```http
+Authorization: Bearer <accessToken>
+```
+
+Roles are `admin`, `teacher` and `student`. Access is enforced both by role
+guards and by ownership checks (teachers can normally only manage their own
+classes, students only their own records).
+
+## Modules
+
+| Module          | Base path              | Who can use it                                  |
+| --------------- | ---------------------- | ----------------------------------------------- |
+| Auth            | `/auth`                | Public / authenticated                          |
+| Users           | `/users`               | Admin                                           |
+| Teachers        | `/teachers`            | Admin, teacher (self-service)                   |
+| Students        | `/students`            | Admin, teacher, student (self-service)          |
+| Courses         | `/courses`             | Read: authenticated; write: admin               |
+| Classes         | `/classes`             | Admin, teacher, enrolled students               |
+| Buildings       | `/buildings`           | Read: authenticated; write: admin               |
+| Floors          | `/floors`              | Read: authenticated; write: admin               |
+| Rooms           | `/rooms`               | Read: authenticated; write: admin               |
+| Enrollments     | `/enrollments`         | Admin, teacher                                  |
+| Class joining   | `/class-registration`  | Students with a join token                      |
+| Join QR codes   | `/classes/:id/qr`      | Admin, class teacher                            |
+| Attendance      | `/attendance`          | Admin, teacher, student (own records)           |
+| Lessons         | `/lessons`             | Admin, teacher, enrolled students               |
+| Assignments     | `/assignments`         | Admin, teacher, enrolled students               |
+| Submissions     | `/submissions`         | Students (own), teachers, admin                 |
+| Exams           | `/exams/attempts`      | Students (own), teachers, admin                 |
+| Grading         | `/grading/grade-scales`, `/grading/scores` | Admin, teacher (scores also readable by students) |
+| Groups          | `/groups`              | Admin, teacher, group members                   |
+| Certificates    | `/certificates`        | Students (own), teachers, admin                 |
+| Announcements   | `/announcements`       | Admin, teacher (authoring); all (reading)       |
+| Notifications   | `/notifications`       | Current user; admin can create/broadcast        |
+| School rules    | `/school-rules`        | Read: authenticated; write: admin               |
+| Audit logs      | `/audit-logs`          | Admin                                           |
+
+### Exams
+
+- `POST /exams/attempts` — start an attempt (students start their own).
+- `GET /exams/attempts` — list attempts, scoped by role.
+- `GET /exams/attempts/assignment/:assignmentId` — attempts for an assignment.
+- `GET /exams/attempts/:id` — attempt details.
+- `PATCH /exams/attempts/:id` — update status/score (teachers/admin).
+- `POST /exams/attempts/:id/submit` — submit an attempt.
+- `DELETE /exams/attempts/:id` — delete an attempt.
+
+### Grading
+
+- `GET|POST /grading/grade-scales` and `GET|PATCH|DELETE /grading/grade-scales/:id`
+  — manage grade scales (writes are admin-only).
+- `POST /grading/scores` — grade a submission.
+- `GET /grading/scores` — filter by submission, class, student or teacher.
+- `GET /grading/scores/class/:classId` — class scores.
+- `GET /grading/scores/submission/:submissionId` — scores for one submission.
+- `GET|PATCH|DELETE /grading/scores/:id` — score details and updates.
+
+### Groups
+
+- `POST /groups` — create a group for a class.
+- `GET /groups` — list groups (students only see groups they belong to).
+- `GET /groups/class/:classId` — groups in a class.
+- `GET|PATCH|DELETE /groups/:id` — group details and management.
+- `POST|GET /groups/:id/members` — add/list members.
+- `DELETE /groups/:id/members/:memberId` — remove a member.
+- `POST|GET /groups/:id/messages` — group chat.
+- `DELETE /groups/:id/messages/:messageId` — delete a message.
+
+### Certificates
+
+- `POST /certificates/requests` — request a certificate.
+- `GET /certificates/requests` — list requests, scoped by role.
+- `GET /certificates/requests/:id` — request details.
+- `PATCH /certificates/requests/:id/review` — approve or reject.
+- `POST /certificates/requests/:id/issue` — issue a certificate.
+- `DELETE /certificates/requests/:id` — delete a pending request.
+- `GET /certificates` — list issued certificates, scoped by role.
+- `GET|PATCH /certificates/:id` — certificate details and file URL.
+- `DELETE /certificates/:id` — delete a certificate (admin).
+
+### Notifications
+
+- `GET /notifications` — current user's notifications (`isRead`, `type`,
+  `page`, `limit`).
+- `GET /notifications/unread-count` — unread badge count.
+- `GET /notifications/:id` — notification details.
+- `PATCH /notifications/:id/read` — mark one notification as read.
+- `POST /notifications/read-all` — mark everything as read.
+- `DELETE /notifications/read` — clear read notifications.
+- `DELETE /notifications/:id` — delete one notification.
+- `POST /notifications` — create a notification for a user (admin).
+- `POST /notifications/broadcast` — send to a role or everyone (admin).
+
+### School rules and audit
+
+- `GET /school-rules` — active rules for everyone; admin can filter all.
+- `GET /school-rules/:id` — rule details.
+- `POST|PATCH|DELETE /school-rules` — manage rules (admin).
+- `GET /audit-logs` — filter by actor, action, entity and date range (admin).
+- `GET /audit-logs/stats` — audit activity summary (admin).
+- `GET /audit-logs/:id` — one audit entry (admin).
+- `POST /audit-logs` — record an entry manually (admin).
+- `DELETE /audit-logs/:id` — delete an entry (admin).
+
+## Class registration by QR
+
+Teachers and administrators can let students enroll in a class by scanning a
+QR code.
+
+1. **Create a class** (`POST /api/v1/classes`). The response includes a
+   `registration` object with a scannable `qrCodeDataUrl` and the
+   `registrationUrl` the QR points to.
+2. **Re-open the QR later** with `GET /api/v1/classes/:classId/qr`. Every
+   active code returns its `registrationUrl` and `qrCodeDataUrl`.
+3. **Create an extra code** with `POST /api/v1/classes/:classId/qr`
+   (optional `{ "expiresInHours": 24 }`, maximum 720 hours).
+4. **Revoke a code** with `DELETE /api/v1/classes/:classId/qr/:qrId`.
+
+Students scan the QR, open `GET /api/v1/class-registration/:token` to preview
+the class, then call `POST /api/v1/class-registration/:token/join` while signed
+in with an active student account. Joining creates an active enrollment and an
+enrollment status-history entry.
+
+Teachers can only manage QR codes for their own classes; administrators can
+manage any class. Set `FRONTEND_URL` (defaults to `http://localhost:4200`) so
+the QR links open the student-facing registration page. Set
+`CLASS_JOIN_CODE_SECRET` to sign invitation tokens (falls back to
+`JWT_SECRET`).
+
+## Tests
 
 ```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
+npm run test         # unit tests
+npm run test:e2e     # end-to-end tests
+npm run test:cov     # coverage
+npm run lint         # oxlint
 ```
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+## Docker
 
-## Observability
-
-In production applications, observability is essential for understanding how your system behaves, detecting issues early, and maintaining reliable performance.
-
-[NestJS Observe](https://observe.nestjs.com) automatically instruments your NestJS application, giving you deep visibility into your system with minimal setup:
-
-- **Distributed tracing:** Follow requests across services and understand how they flow through your system.
-- **Waterfall analysis:** Visualize request execution and identify slow operations, bottlenecks, and unexpected delays.
-- **Performance analysis:** Analyze application performance in real time and quickly pinpoint areas that need optimization.
-- **Metrics:** Track key application and infrastructure metrics to understand system health and performance trends.
-- **Logging:** Centralize and correlate logs with traces and other telemetry to make debugging easier.
-- **Error tracking:** Detect errors quickly and investigate their root causes with the surrounding context.
-- **SLA monitoring:** Track service-level objectives and identify when your application is approaching or exceeding defined thresholds.
-- **Alarms and alerts:** Set up alerts for critical errors, performance degradation, SLA violations, and other anomalies so your team can react quickly.
-
-This project is already instrumented. To connect it, run this and approve the code it prints at [observe.nestjs.com/link](https://observe.nestjs.com/link) - signing up for free if you have no account:
+The API has a multi-stage `Dockerfile` and can be run together with PostgreSQL
+and the web app through the Compose stack in the parent directory:
 
 ```bash
-$ npx @nestjs/observe link
+# from School-Project/
+cp .env.example .env       # then change the passwords/secrets
+docker compose up -d --build
 ```
 
-It writes the app key and secret into `.env` and makes every `nest start` script (`start`, `start:dev`, `start:debug`) load it. In production, set `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment instead.
+The API is available through the web proxy at
+`http://localhost:8080/api/v1`. See `../DOCKER.md` for configuration,
+production notes and backup commands.
 
-Or do it by hand: create an application and an API key at [observe.nestjs.com](https://observe.nestjs.com), and set the pair as `OBSERVE_APP_KEY` and `OBSERVE_APP_SECRET` in the environment the app runs in.
+## Project structure
 
-The free plan needs no payment details and covers 300,000 events a month. You can also browse the [live demo](https://www.observe-demo.nestjs.com/dashboard) first - the whole dashboard over a busy service's data, with nothing to install.
-
-## Resources
-
-Check out a few resources that may come in handy when working with NestJS:
-
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Auto-instrument your application with [NestJS Observe](https://observe.nestjs.com). Distributed tracing, metrics, and logging made easy. Error tracking and performance monitoring for your NestJS applications.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
-
-## Support
-
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
-
-## Stay in touch
-
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
-
-## License
-
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+```
+src/
+  auth/            authentication and refresh tokens
+  users/           user accounts and roles
+  teachers/        teacher profiles and skills
+  students/        student profiles and academic history
+  classes/         classes, schedules, buildings, floors and rooms
+  courses/         course catalogue
+  enrollments/     class enrollments and status history
+  attendance/      attendance records
+  lessons/         lesson plans
+  assignments/     assignments, attachments and comments
+  submissions/     student/group submissions and attachments
+  exams/           exam attempts
+  grading/         grade scales and scores
+  groups/          student groups, members and messages
+  certificates/    certificate requests and issued certificates
+  announcements/   announcements and read receipts
+  notifications/   in-app notifications
+  school-rules/    school policy documents
+  audit/           audit trail
+  common/          guards, decorators, JWT strategy and access helpers
+  database/        TypeORM configuration and migrations
+```

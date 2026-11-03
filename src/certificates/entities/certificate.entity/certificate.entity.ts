@@ -69,14 +69,10 @@ export class Certificate {
   @JoinColumn({ name: 'class_id' })
   schoolClass: Relation<SchoolClass>;
 
-  @OneToOne(
-    () => CertificateRequest,
-    (request) => request.certificate,
-    {
-      nullable: true,
-      onDelete: 'SET NULL',
-    },
-  )
+  @OneToOne(() => CertificateRequest, (request) => request.certificate, {
+    nullable: true,
+    onDelete: 'SET NULL',
+  })
   @JoinColumn({ name: 'certificate_request_id' })
   certificateRequest: Relation<CertificateRequest | null>;
 }

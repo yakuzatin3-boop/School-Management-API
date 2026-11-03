@@ -12,11 +12,23 @@ import { ClassSchedule } from './entities/class-schedule.entity/class-schedule.e
 import { Room } from './entities/room.entity/room.entity.js';
 import { Course } from '../courses/entities/course.entity/course.entity.js';
 import { Teacher } from '../teachers/entities/teacher.entity/teacher.entity.js';
-import { UserRole } from '../users/entities/user.entity/user.entity.js';
+import {
+  Enrollment,
+  EnrollmentStatus,
+} from '../enrollments/entities/enrollment.entity/enrollment.entity.js';
+import { EnrollmentStatusHistory } from '../enrollments/entities/enrollment-status-history.entity/enrollment-status-history.entity.js';
+import {
+  Student,
+  StudentStatus,
+} from '../students/entities/student.entity/student.entity.js';
+import { User, UserRole } from '../users/entities/user.entity/user.entity.js';
 import { CreateClassDto } from './dto/create-class.dto.js';
 import { UpdateClassDto } from './dto/update-class.dto.js';
 import { CreateClassScheduleDto } from './dto/create-class-schedule.dto.js';
 import { UpdateClassScheduleDto } from './dto/update-class-schedule.dto.js';
+import { AddClassStudentDto } from './dto/add-class-student.dto.js';
+import { UpdateClassEnrollmentDto } from './dto/update-class-enrollment.dto.js';
+import { ClassRegistrationService } from '../class-registration/class-registration.service.js';
 
 interface ClassActor {
 	userId: string;
@@ -36,6 +48,13 @@ export class ClassesService {
 		private readonly courseRepository: Repository<Course>,
 		@InjectRepository(Teacher)
 		private readonly teacherRepository: Repository<Teacher>,
+		@InjectRepository(Enrollment)
+		private readonly enrollmentRepository: Repository<Enrollment>,
+		@InjectRepository(EnrollmentStatusHistory)
+		private readonly enrollmentStatusHistoryRepository: Repository<EnrollmentStatusHistory>,
+		@InjectRepository(Student)
+		private readonly studentRepository: Repository<Student>,
+		private readonly classRegistrationService: ClassRegistrationService,
 	) {}
 
 	async findAll(actor: ClassActor) {
@@ -49,7 +68,8 @@ export class ClassesService {
 			relations: {
 				course: true,
 				teacher: true,
-				schedules: { room: true },
+				schedules: { room: { building: true, floor: true } },
+				enrollments: { student: true },
 			},
 			order: { createdAt: 'DESC' },
 		});
@@ -59,10 +79,36 @@ export class ClassesService {
 
 	async findOne(classId: string, actor: ClassActor) {
 		const schoolClass = await this.getClassForActor(classId, actor);
-		return this.toPublicClass(schoolClass);
+		return this.toPublicClassDetail(schoolClass);
 	}
 
-	async create(dto: CreateClassDto) {
+	async getSummary(classId: string, actor: ClassActor) {
+		const schoolClass = await this.getClassForActor(classId, actor);
+		const enrollments = schoolClass.enrollments ?? [];
+		const activeEnrollments = enrollments.filter(
+			(enrollment) => enrollment.status === EnrollmentStatus.ACTIVE,
+		);
+		const withdrawnEnrollments = enrollments.filter(
+			(enrollment) => enrollment.status === EnrollmentStatus.WITHDRAWN,
+		);
+		const suspendedEnrollments = enrollments.filter(
+			(enrollment) => enrollment.status === EnrollmentStatus.SUSPENDED,
+		);
+
+		return {
+			class: this.toPublicClass(schoolClass),
+			stats: {
+				totalEnrollments: enrollments.length,
+				activeEnrollments: activeEnrollments.length,
+				withdrawnEnrollments: withdrawnEnrollments.length,
+				suspendedEnrollments: suspendedEnrollments.length,
+				scheduleCount: schoolClass.schedules?.length ?? 0,
+				hasTeacher: Boolean(schoolClass.teacher),
+			},
+		};
+	}
+
+	async create(dto: CreateClassDto, actor: ClassActor) {
 		const classCode = dto.classCode.trim();
 		const duplicate = await this.classRepository.findOne({
 			where: { classCode },
@@ -73,9 +119,7 @@ export class ClassesService {
 		}
 
 		const course = await this.getCourse(dto.courseId);
-		const teacher = dto.teacherId
-			? await this.getTeacher(dto.teacherId)
-			: null;
+		const teacher = await this.resolveClassTeacher(dto, actor);
 		const schoolClass = this.classRepository.create({
 			classCode,
 			name: dto.name.trim(),
@@ -83,8 +127,20 @@ export class ClassesService {
 			course,
 			teacher,
 		});
+		const savedClass = await this.saveClass(schoolClass);
 
-		return this.toPublicClass(await this.saveClass(schoolClass));
+		// A class always starts with a scannable registration QR code.
+		const registration =
+			await this.classRegistrationService.createJoinCode(
+				savedClass.id,
+				{ userId: actor.userId, role: actor.role },
+				{},
+			);
+
+		return {
+			...this.toPublicClass(savedClass),
+			registration,
+		};
 	}
 
 	async update(classId: string, dto: UpdateClassDto) {
@@ -219,6 +275,144 @@ export class ClassesService {
 		return { message: 'Class schedule deleted successfully' };
 	}
 
+	async findStudents(classId: string, actor: ClassActor) {
+		const schoolClass = await this.getClassForActor(classId, actor);
+		const enrollments = await this.enrollmentRepository.find({
+			where: { schoolClass: { id: schoolClass.id } },
+			relations: {
+				student: true,
+				statusHistory: true,
+			},
+			order: { createdAt: 'DESC' },
+		});
+
+		return enrollments.map((enrollment) =>
+			this.toPublicEnrollment(enrollment),
+		);
+	}
+
+	async addStudent(
+		classId: string,
+		dto: AddClassStudentDto,
+		actor: ClassActor,
+	) {
+		const schoolClass = await this.getClassForActor(classId, actor);
+		const student = await this.getStudent(dto.studentId);
+
+		if (student.status === StudentStatus.GRADUATED) {
+			throw new BadRequestException(
+				'A graduated student cannot be enrolled in a class',
+			);
+		}
+
+		let enrollment = await this.enrollmentRepository.findOne({
+			where: {
+				student: { id: student.id },
+				schoolClass: { id: schoolClass.id },
+			},
+		});
+
+		if (enrollment?.status === EnrollmentStatus.ACTIVE) {
+			throw new ConflictException(
+				'Student is already enrolled in this class',
+			);
+		}
+
+		if (enrollment) {
+			const oldStatus = enrollment.status;
+			enrollment.status = EnrollmentStatus.ACTIVE;
+			enrollment.completedAt = null;
+			enrollment = await this.enrollmentRepository.save(enrollment);
+			await this.recordEnrollmentStatus(
+				enrollment,
+				oldStatus,
+				EnrollmentStatus.ACTIVE,
+				actor.userId,
+				'Student re-enrolled in class',
+			);
+		} else {
+			enrollment = await this.enrollmentRepository.save(
+				this.enrollmentRepository.create({
+					student,
+					schoolClass,
+					status: EnrollmentStatus.ACTIVE,
+				}),
+			);
+			await this.recordEnrollmentStatus(
+				enrollment,
+				null,
+				EnrollmentStatus.ACTIVE,
+				actor.userId,
+				'Student enrolled in class',
+			);
+		}
+
+		return this.toPublicEnrollment(enrollment);
+	}
+
+	async updateStudent(
+		classId: string,
+		enrollmentId: string,
+		dto: UpdateClassEnrollmentDto,
+		actor: ClassActor,
+	) {
+		if (Object.keys(dto).length === 0) {
+			throw new BadRequestException(
+				'Provide at least one field to update',
+			);
+		}
+
+		await this.getClassForActor(classId, actor);
+		const enrollment = await this.enrollmentRepository.findOne({
+			where: {
+				id: enrollmentId,
+				schoolClass: { id: classId },
+			},
+			relations: { student: true, statusHistory: true },
+		});
+
+		if (!enrollment) {
+			throw new NotFoundException('Enrollment not found');
+		}
+
+		const oldStatus = enrollment.status;
+
+		if (dto.status !== undefined && dto.status !== oldStatus) {
+			enrollment.status = dto.status;
+			enrollment.completedAt =
+				dto.status === EnrollmentStatus.WITHDRAWN
+					? new Date()
+					: null;
+			await this.enrollmentRepository.save(enrollment);
+			await this.recordEnrollmentStatus(
+				enrollment,
+				oldStatus,
+				dto.status,
+				actor.userId,
+				dto.reason?.trim() ||
+					'Enrollment status updated from class roster',
+			);
+		}
+
+		return this.toPublicEnrollment(enrollment);
+	}
+
+	async removeStudent(
+		classId: string,
+		enrollmentId: string,
+		actor: ClassActor,
+	) {
+		return this.updateStudent(
+			classId,
+			enrollmentId,
+			{
+				status: EnrollmentStatus.WITHDRAWN,
+				reason: 'Student removed from class',
+			},
+			actor,
+		);
+	}
+
 	private async getClassForActor(classId: string, actor: ClassActor) {
 		const schoolClass = await this.getClassEntity(classId);
 		if (actor.role === UserRole.ADMIN) return schoolClass;
@@ -236,7 +430,8 @@ export class ClassesService {
 			relations: {
 				course: true,
 				teacher: true,
-				schedules: { room: true },
+				schedules: { room: { building: true, floor: true } },
+				enrollments: { student: true },
 			},
 		});
 		if (!schoolClass) throw new NotFoundException('Class not found');
@@ -259,6 +454,29 @@ export class ClassesService {
 		return teacher;
 	}
 
+	private async resolveClassTeacher(
+		dto: CreateClassDto,
+		actor: ClassActor,
+	) {
+		const requestedTeacher = dto.teacherId
+			? await this.getTeacher(dto.teacherId)
+			: null;
+
+		if (actor.role !== UserRole.TEACHER) {
+			return requestedTeacher;
+		}
+
+		const ownTeacher = await this.getTeacherForActor(actor);
+
+		if (requestedTeacher && requestedTeacher.id !== ownTeacher.id) {
+			throw new ForbiddenException(
+				'You can only create classes for yourself',
+			);
+		}
+
+		return ownTeacher;
+	}
+
 	private async getTeacherForActor(actor: ClassActor) {
 		const teacher = await this.teacherRepository.findOne({
 			where: { user: { id: actor.userId } },
@@ -270,9 +488,35 @@ export class ClassesService {
 	private async getRoom(roomId: string) {
 		const room = await this.roomRepository.findOne({
 			where: { id: roomId },
+			relations: { building: true, floor: true },
 		});
 		if (!room) throw new NotFoundException('Room not found');
 		return room;
+	}
+
+	private async getStudent(studentId: string) {
+		const student = await this.studentRepository.findOne({
+			where: { id: studentId },
+		});
+		if (!student) throw new NotFoundException('Student not found');
+		return student;
+	}
+
+	private async recordEnrollmentStatus(
+		enrollment: Enrollment,
+		oldStatus: EnrollmentStatus | null,
+		newStatus: EnrollmentStatus,
+		changedByUserId: string,
+		reason: string,
+	) {
+		const history = this.enrollmentStatusHistoryRepository.create({
+			enrollment,
+			oldStatus,
+			newStatus,
+			reason,
+		});
+		history.changedByUser = { id: changedByUserId } as User;
+		await this.enrollmentStatusHistoryRepository.save(history);
 	}
 
 	private validateTimeRange(startTime: string, endTime: string) {
@@ -349,13 +593,15 @@ export class ClassesService {
 		const saved = await this.scheduleRepository.save(schedule);
 		const withRoom = await this.scheduleRepository.findOne({
 			where: { id: saved.id },
-			relations: { room: true },
+			relations: { room: { building: true, floor: true } },
 		});
 		if (!withRoom) throw new NotFoundException('Class schedule not found');
 		return withRoom;
 	}
 
 	private toPublicClass(schoolClass: SchoolClass) {
+		const enrollments = schoolClass.enrollments ?? [];
+
 		return {
 			id: schoolClass.id,
 			classCode: schoolClass.classCode,
@@ -374,9 +620,61 @@ export class ClassesService {
 						lastName: schoolClass.teacher.lastName,
 					}
 				: null,
+			enrollmentSummary: {
+				total: enrollments.length,
+				active: enrollments.filter(
+					(enrollment) =>
+						enrollment.status === EnrollmentStatus.ACTIVE,
+				).length,
+				withdrawn: enrollments.filter(
+					(enrollment) =>
+						enrollment.status === EnrollmentStatus.WITHDRAWN,
+				).length,
+				suspended: enrollments.filter(
+					(enrollment) =>
+						enrollment.status === EnrollmentStatus.SUSPENDED,
+				).length,
+			},
 			schedules: (schoolClass.schedules ?? []).map((schedule) =>
 				this.toPublicSchedule(schedule),
 			),
+		};
+	}
+
+	private toPublicClassDetail(schoolClass: SchoolClass) {
+		return {
+			...this.toPublicClass(schoolClass),
+			enrollments: (schoolClass.enrollments ?? []).map((enrollment) =>
+				this.toPublicEnrollment(enrollment),
+			),
+		};
+	}
+
+	private toPublicEnrollment(enrollment: Enrollment) {
+		return {
+			id: enrollment.id,
+			status: enrollment.status,
+			enrolledAt: enrollment.createdAt,
+			completedAt: enrollment.completedAt,
+			createdAt: enrollment.createdAt,
+			updatedAt: enrollment.updatedAt,
+			student: enrollment.student
+				? {
+						id: enrollment.student.id,
+						studentNumber: enrollment.student.studentNumber,
+						firstName: enrollment.student.firstName,
+						lastName: enrollment.student.lastName,
+						email: enrollment.student.email,
+						status: enrollment.student.status,
+					}
+				: null,
+			statusHistory: (enrollment.statusHistory ?? []).map((entry) => ({
+				id: entry.id,
+				oldStatus: entry.oldStatus,
+				newStatus: entry.newStatus,
+				reason: entry.reason,
+				createdAt: entry.createdAt,
+			})),
 		};
 	}
 
@@ -394,6 +692,19 @@ export class ClassesService {
 						roomCode: schedule.room.roomCode,
 						name: schedule.room.name,
 						capacity: schedule.room.capacity,
+						building: schedule.room.building
+							? {
+									id: schedule.room.building.id,
+									name: schedule.room.building.name,
+								}
+							: null,
+						floor: schedule.room.floor
+							? {
+									id: schedule.room.floor.id,
+									floorNumber: schedule.room.floor.floorNumber,
+									name: schedule.room.floor.name,
+								}
+							: null,
 					}
 				: null,
 		};

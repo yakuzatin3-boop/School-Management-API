@@ -13,6 +13,12 @@ import {
 import { User } from '../../../users/entities/user.entity/user.entity.js';
 import { AnnouncementRead } from '../announcement-read.entity/announcement-read.entity.js';
 
+export enum AnnouncementAudience {
+  ALL = 'all',
+  TEACHERS = 'teachers',
+  STUDENTS = 'students',
+}
+
 @Entity({ name: 'announcements' })
 @Index('IDX_announcements_created_by_user_id', ['createdByUser'])
 @Index('IDX_announcements_is_published', ['isPublished'])
@@ -34,9 +40,9 @@ export class Announcement {
   @Column({
     type: 'varchar',
     length: 20,
-    default: 'all',
+    default: AnnouncementAudience.ALL,
   })
-  audience: string;
+  audience: AnnouncementAudience;
 
   @Column({
     name: 'is_published',
